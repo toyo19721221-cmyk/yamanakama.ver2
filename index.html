@@ -23,8 +23,8 @@
   <div id="app" class="max-w-4xl mx-auto min-h-screen flex flex-col"></div>
 
   <script>
-    // --- データと設定 ---
-    const STORAGE_KEY = 'hiking_app_v4_data';
+    // --- 1. データと定数 ---
+    const STORAGE_KEY = 'hiking_app_v5_data';
     const PREFECTURES = ["北海道","青森県","岩手県","宮城県","秋田県","山形県","福島県","茨城県","栃木県","群馬県","埼玉県","千葉県","東京都","神奈川県","新潟県","富山県","石川県","福井県","山梨県","長野県","岐阜県","静岡県","愛知県","三重県","滋賀県","京都府","大阪府","兵庫県","奈良県","和歌山県","鳥取県","島根県","岡山県","広島県","山口県","徳島県","香川県","愛媛県","高知県","福岡県","佐賀県","長崎県","熊本県","大分県","宮崎県","鹿児島県","沖縄県"];
 
     let allData = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
@@ -32,19 +32,18 @@
     let currentPostId = null;
 
     // フィルター状態
+    let selectedStatuses = new Set(['open', 'closed']); 
     let selectedDifficulties = new Set(['初心者向け', '中級者向け', '上級者向け']);
-    let selectedPrefecture = "すべて";
+    let filterPrefecture = "すべて";
 
-    // サービスワーカー登録
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js').catch(console.error);
-      });
-    }
-
+    // --- 2. ユーティリティ ---
     function saveData() {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(allData));
       renderApp();
+    }
+
+    function calculateStatus(deadline) {
+      return new Date() > new Date(deadline) ? 'closed' : 'open';
     }
 
     function formatDateTime(dtStr) {
@@ -53,24 +52,23 @@
       return `${dt.getMonth() + 1}月${dt.getDate()}日 ${dt.getHours()}時`;
     }
 
+    // --- 3. イベントハンドラ ---
     window.deletePost = (e, id) => {
       e.stopPropagation();
       const post = allData.find(i => i.id === id);
-      const inputPass = prompt('削除用パスワードを入力してください:');
-      if (inputPass === post.password) {
+      const pass = prompt('削除パスワードを入力:');
+      if (pass === post.password) {
         allData = allData.filter(i => i.id !== id && i.postId !== id);
         saveData();
-      } else if (inputPass !== null) {
-        alert('パスワードが違います');
-      }
+      } else if (pass !== null) alert('パスワードが違います');
     };
 
-    function toggleDifficulty(diff) {
-      selectedDifficulties.has(diff) ? selectedDifficulties.delete(diff) : selectedDifficulties.add(diff);
+    function toggleFilter(set, val) {
+      set.has(val) ? set.delete(val) : set.add(val);
       renderApp();
     }
 
-    // --- メイン表示 ---
+    // --- 4. レンダリング ---
     function renderApp() {
       const app = document.getElementById('app');
       if (currentView === 'list') app.innerHTML = renderListView();
@@ -80,62 +78,72 @@
     }
 
     function renderListView() {
-      let posts = allData.filter(i => i.type === 'post');
-      
-      // フィルター適用
-      if (selectedPrefecture !== "すべて") posts = posts.filter(p => p.prefecture === selectedPrefecture);
-      posts = posts.filter(p => selectedDifficulties.has(p.difficulty));
-      posts = posts.reverse();
+      let posts = allData.filter(i => i.type === 'post').filter(p => {
+        const status = calculateStatus(p.deadline);
+        const matchStatus = selectedStatuses.has(status);
+        const matchDiff = selectedDifficulties.has(p.difficulty);
+        const matchPref = (filterPrefecture === "すべて" || p.prefecture === filterPrefecture);
+        return matchStatus && matchDiff && matchPref;
+      }).reverse();
 
       return `
-        <header class="flex justify-between items-center p-6 bg-white border-b sticky top-0 z-10">
-          <h1 class="text-2xl font-bold flex items-center gap-2">🏔️ 山仲間募集</h1>
-          <button onclick="currentView='create'; renderApp()" class="bg-[#0081c9] text-white px-4 py-2 rounded-lg font-bold shadow-md hover:bg-[#006ba6]">新しい募集を作成</button>
+        <header class="flex justify-between items-center p-6">
+          <h1 class="text-2xl font-bold">🏔️ 山仲間募集</h1>
+          <button onclick="currentView='create'; renderApp()" class="bg-[#0081c9] text-white px-4 py-2 rounded-lg font-bold shadow-md">募集作成</button>
         </header>
 
-        <main class="px-6 py-4 flex-grow">
-          <div class="bg-white rounded-xl p-6 mb-8 card-shadow border border-slate-100">
-            <h3 class="font-bold text-slate-800 mb-4 flex items-center gap-2">🔍 絞り込み条件</h3>
+        <main class="px-6 flex-grow">
+          <div class="bg-white rounded-xl p-6 mb-8 card-shadow border border-slate-100 space-y-6">
+            <h3 class="font-bold text-slate-800 flex items-center gap-2">🔍 フィルター</h3>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <p class="text-xs font-bold text-slate-400 mb-2 uppercase">難易度</p>
-                <div class="flex flex-wrap gap-2">
-                  ${['初心者向け', '中級者向け', '上級者向け'].map(d => {
-                    const active = selectedDifficulties.has(d);
-                    return `<span onclick="toggleDifficulty('${d}')" class="filter-chip" style="background:${active ? '#0284c7' : 'transparent'}; color:${active ? '#fff' : '#64748b'}; border-color:${active ? '#0284c7' : '#e2e8f0'}">${d}</span>`;
-                  }).join('')}
+              <div class="space-y-4">
+                <div>
+                  <p class="text-[10px] font-bold text-slate-400 mb-2 uppercase">募集状態</p>
+                  <div class="flex gap-2">
+                    ${[['open','🟢 募集中'], ['closed','🟡 締切']].map(([v, l]) => {
+                      const active = selectedStatuses.has(v);
+                      return `<span onclick="toggleFilter(selectedStatuses, '${v}')" class="filter-chip" style="background:${active ? '#0284c7' : 'transparent'}; color:${active ? '#fff' : '#64748b'}; border-color:${active ? '#0284c7' : '#e2e8f0'}">${l}</span>`;
+                    }).join('')}
+                  </div>
+                </div>
+                <div>
+                  <p class="text-[10px] font-bold text-slate-400 mb-2 uppercase">難易度</p>
+                  <div class="flex flex-wrap gap-2">
+                    ${['初心者向け', '中級者向け', '上級者向け'].map(d => {
+                      const active = selectedDifficulties.has(d);
+                      return `<span onclick="toggleFilter(selectedDifficulties, '${d}')" class="filter-chip" style="background:${active ? '#0284c7' : 'transparent'}; color:${active ? '#fff' : '#64748b'}; border-color:${active ? '#0284c7' : '#e2e8f0'}">${d}</span>`;
+                    }).join('')}
+                  </div>
                 </div>
               </div>
               <div>
-                <p class="text-xs font-bold text-slate-400 mb-2 uppercase">所在地（地域）</p>
-                <select onchange="selectedPrefecture=this.value; renderApp()" class="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none">
-                  <option value="すべて">すべての地域</option>
-                  ${PREFECTURES.map(p => `<option value="${p}" ${selectedPrefecture === p ? 'selected' : ''}>${p}</option>`).join('')}
+                <p class="text-[10px] font-bold text-slate-400 mb-2 uppercase">所在地</p>
+                <select onchange="filterPrefecture=this.value; renderApp()" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg outline-none">
+                  <option value="すべて">すべて表示</option>
+                  ${PREFECTURES.map(p => `<option value="${p}" ${filterPrefecture===p?'selected':''}>${p}</option>`).join('')}
                 </select>
               </div>
             </div>
           </div>
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-6 pb-10">
-            ${posts.length === 0 ? '<p class="text-center text-slate-400 col-span-2 py-20 bg-white rounded-2xl">該当する募集がありません</p>' : 
+            ${posts.length === 0 ? '<p class="text-center text-slate-400 col-span-2 py-10">該当する募集はありません</p>' : 
               posts.map(post => `
-                <div class="bg-white rounded-2xl p-6 card-shadow cursor-pointer relative border border-transparent hover:border-blue-300 transition-all" onclick="openChat('${post.id}')">
+                <div class="bg-white rounded-2xl p-6 card-shadow cursor-pointer relative" onclick="openChat('${post.id}')">
                   <div class="absolute top-4 right-4 flex flex-col items-end gap-1">
-                    <span class="bg-emerald-500 text-white text-[10px] px-2 py-0.5 rounded-full font-bold">🟢 募集中</span>
-                    <span class="bg-sky-500 text-white text-[10px] px-2 py-0.5 rounded-full font-bold">${post.difficulty}</span>
-                    <button onclick="deletePost(event, '${post.id}')" class="mt-2 text-slate-300 hover:text-red-500 text-xs flex items-center gap-1">🗑️ 削除</button>
+                    <span class="bg-emerald-500 text-white text-[10px] px-2 py-0.5 rounded-full font-bold">${calculateStatus(post.deadline)==='open'?'募集中':'締切'}</span>
+                    <button onclick="deletePost(event, '${post.id}')" class="mt-2 text-slate-300 hover:text-red-500 text-xs">🗑️ 削除</button>
                   </div>
                   <h3 class="text-xl font-bold mb-4 pr-16">${post.title}</h3>
-                  <div class="space-y-2 text-sm text-slate-600 mb-4">
+                  <div class="space-y-1 text-sm text-slate-600 mb-4">
                     <p>⛰️ <strong>${post.mountain} (${post.prefecture})</strong></p>
                     <p>📅 登山: <span class="text-blue-600 font-bold">${formatDateTime(post.startDateTime)}</span></p>
-                    <p>🏁 下山: <span class="text-slate-500">${formatDateTime(post.endDateTime)}</span></p>
-                    <p>👥 募集: ${post.members}</p>
-                    <p>🏔️ 標高: ${post.elevation}m / 👣 距離: ${post.distance}km</p>
+                    <p>🏁 下山: ${formatDateTime(post.endDateTime)}</p>
+                    <p>👥 難易度: ${post.difficulty}</p>
                   </div>
                   <div class="pt-4 border-t flex justify-between items-center text-xs text-slate-400">
                     <span>投稿者: ${post.author}</span>
-                    <span class="bg-blue-50 text-blue-600 px-3 py-1 rounded-full font-bold">💬 ${allData.filter(i => i.postId === post.id).length} 件</span>
+                    <span class="text-blue-500 font-bold">💬 ${allData.filter(i => i.postId === post.id).length} 件</span>
                   </div>
                 </div>
               `).join('')}
@@ -147,83 +155,38 @@
     function renderCreateView() {
       return `
         <div class="p-6">
-          <h2 class="text-2xl font-bold mb-6 text-center">新しい募集を作成</h2>
-          <div class="bg-white rounded-2xl p-8 card-shadow border border-blue-50">
-            <form id="createForm" class="space-y-5 text-sm">
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label class="block font-bold mb-1">あなたの名前</label>
-                  <input type="text" id="author" required class="w-full p-3 bg-slate-50 border rounded-lg outline-none">
-                </div>
-                <div>
-                  <label class="block font-bold mb-1 text-red-500">削除パスワード</label>
-                  <input type="password" id="password" required class="w-full p-3 bg-red-50 border border-red-100 rounded-lg outline-none">
-                </div>
-              </div>
-              <div>
-                <label class="block font-bold mb-1">募集タイトル</label>
-                <input type="text" id="title" required class="w-full p-3 bg-slate-50 border rounded-lg outline-none">
-              </div>
-              <div class="grid grid-cols-2 gap-4">
-                <div>
-                  <label class="block font-bold mb-1">山の名前</label>
-                  <input type="text" id="mountain" required class="w-full p-3 bg-slate-50 border rounded-lg outline-none">
-                </div>
-                <div>
-                  <label class="block font-bold mb-1">所在地</label>
-                  <select id="prefecture" class="w-full p-3 bg-slate-50 border rounded-lg outline-none">
-                    ${PREFECTURES.map(p => `<option value="${p}">${p}</option>`).join('')}
-                  </select>
-                </div>
-              </div>
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label class="block font-bold mb-1 text-blue-600">登山予定日時</label>
-                  <input type="datetime-local" id="startDateTime" required class="w-full p-3 bg-blue-50 border border-blue-100 rounded-lg outline-none">
-                </div>
-                <div>
-                  <label class="block font-bold mb-1">下山予定日時</label>
-                  <input type="datetime-local" id="endDateTime" required class="w-full p-3 bg-slate-50 border rounded-lg outline-none">
-                </div>
-              </div>
-              <div>
-                <label class="block font-bold mb-1">募集期限</label>
-                <input type="date" id="deadline" required class="w-full p-3 bg-slate-50 border rounded-lg outline-none">
-              </div>
-              <div class="grid grid-cols-2 gap-4">
-                <div>
-                  <label class="block font-bold mb-1">難易度</label>
-                  <select id="difficulty" class="w-full p-3 bg-slate-50 border rounded-lg">
-                    <option>初心者向け</option><option>中級者向け</option><option>上級者向け</option>
-                  </select>
-                </div>
-                <div>
-                  <label class="block font-bold mb-1">募集人数</label>
-                  <select id="members" class="w-full p-3 bg-slate-50 border rounded-lg">
-                    <option>1人</option><option>2人</option><option>3人以上</option>
-                  </select>
-                </div>
-              </div>
-              <div class="grid grid-cols-2 gap-4">
-                <div>
-                  <label class="block font-bold mb-1">上り標高 (m)</label>
-                  <input type="number" id="elevation" class="w-full p-3 bg-slate-50 border rounded-lg">
-                </div>
-                <div>
-                  <label class="block font-bold mb-1">距離 (km)</label>
-                  <input type="number" step="0.1" id="distance" class="w-full p-3 bg-slate-50 border rounded-lg">
-                </div>
-              </div>
-              <div>
-                <label class="block font-bold mb-1">詳細説明</label>
-                <textarea id="description" rows="4" class="w-full p-3 bg-slate-50 border rounded-lg outline-none"></textarea>
-              </div>
-              <div class="space-y-3 pt-4">
-                <button type="submit" class="w-full bg-[#0081c9] text-white py-4 rounded-xl font-bold shadow-lg">募集を投稿する</button>
-                <button type="button" onclick="currentView='list'; renderApp()" class="w-full bg-slate-100 text-slate-600 py-3 rounded-xl font-bold border">キャンセル</button>
-              </div>
-            </form>
-          </div>
+          <h2 class="text-2xl font-bold mb-6">募集を作成</h2>
+          <form id="createForm" class="bg-white p-8 rounded-2xl card-shadow space-y-4">
+            <div class="grid grid-cols-2 gap-4">
+              <input type="text" id="author" placeholder="お名前" required class="p-3 border rounded-lg">
+              <input type="password" id="password" placeholder="削除パス" required class="p-3 border border-red-100 bg-red-50 rounded-lg">
+            </div>
+            <input type="text" id="title" placeholder="募集タイトル" required class="w-full p-3 border rounded-lg">
+            <div class="grid grid-cols-2 gap-4">
+              <input type="text" id="mountain" placeholder="山の名前" required class="p-3 border rounded-lg">
+              <select id="prefecture" class="p-3 border rounded-lg">
+                ${PREFECTURES.map(p => `<option value="${p}">${p}</option>`).join('')}
+              </select>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+              <div><label class="text-[10px] font-bold block">登山日時</label><input type="datetime-local" id="startDateTime" required class="w-full p-3 border rounded-lg"></div>
+              <div><label class="text-[10px] font-bold block">下山日時</label><input type="datetime-local" id="endDateTime" required class="w-full p-3 border rounded-lg"></div>
+            </div>
+            <div><label class="text-[10px] font-bold block">募集締切日</label><input type="date" id="deadline" required class="w-full p-3 border rounded-lg"></div>
+            <div class="grid grid-cols-2 gap-4">
+              <select id="difficulty" class="p-3 border rounded-lg">
+                <option>初心者向け</option><option>中級者向け</option><option>上級者向け</option>
+              </select>
+              <select id="members" class="p-3 border rounded-lg">
+                <option>1人</option><option>2人</option><option>3人以上</option>
+              </select>
+            </div>
+            <textarea id="description" rows="4" placeholder="詳細説明（集合場所など）" class="w-full p-3 border rounded-lg"></textarea>
+            <div class="flex gap-4">
+              <button type="submit" class="flex-grow bg-[#0081c9] text-white py-4 rounded-xl font-bold">投稿する</button>
+              <button type="button" onclick="currentView='list'; renderApp()" class="px-6 border rounded-xl">戻る</button>
+            </div>
+          </form>
         </div>
       `;
     }
@@ -232,37 +195,26 @@
       const post = allData.find(i => i.id === currentPostId);
       const messages = allData.filter(i => i.postId === currentPostId && i.type === 'chat');
       return `
-        <header class="p-6 flex items-center gap-4 bg-white card-shadow shrink-0 sticky top-0 z-10">
-          <button onclick="currentView='list'; renderApp()" class="text-2xl p-2 hover:bg-slate-100 rounded-full transition-all">←</button>
-          <div class="overflow-hidden">
-            <h2 class="font-bold truncate text-lg">${post.title}</h2>
-            <p class="text-xs text-slate-500">🗻 ${post.mountain} / ${formatDateTime(post.startDateTime)}</p>
-          </div>
+        <header class="p-6 flex items-center gap-4 bg-white border-b">
+          <button onclick="currentView='list'; renderApp()" class="text-xl">←</button>
+          <h2 class="font-bold truncate">${post.title}</h2>
         </header>
-        <div class="flex-grow p-6 overflow-y-auto space-y-4 scroll-container">
-          <div class="bg-white p-5 rounded-2xl text-sm border border-blue-100 card-shadow">
-            <p class="font-bold text-blue-600 mb-2">募集詳細</p>
-            <p class="whitespace-pre-wrap leading-relaxed">${post.description || "詳細なし"}</p>
-          </div>
-          ${messages.map(m => `
-            <div class="bg-white p-3 rounded-xl shadow-sm border border-slate-100 max-w-[90%]">
-              <p class="text-[10px] text-slate-400 mb-1 font-bold">👤 ${m.user}</p>
-              <p class="text-sm">${m.text}</p>
-            </div>
-          `).join('')}
+        <div class="flex-grow p-6 overflow-y-auto space-y-4">
+          <div class="bg-white p-4 rounded-xl border border-blue-100 text-sm whitespace-pre-wrap">${post.description || "詳細なし"}</div>
+          ${messages.map(m => `<div class="bg-white p-3 rounded-xl shadow-sm border border-slate-100 max-w-[90%]"><p class="text-[10px] text-slate-400">👤 ${m.user}</p><p class="text-sm">${m.text}</p></div>`).join('')}
         </div>
-        <div class="p-4 bg-white border-t flex gap-2 shrink-0">
-          <input type="text" id="msgInput" class="flex-grow p-3 bg-slate-100 rounded-xl outline-none" placeholder="メッセージを入力...">
+        <div class="p-4 bg-white border-t flex gap-2">
+          <input type="text" id="msgInput" class="flex-grow p-3 bg-slate-100 rounded-xl" placeholder="メッセージ...">
           <button onclick="sendChat()" class="bg-[#0081c9] text-white px-6 rounded-xl font-bold">送信</button>
         </div>
       `;
     }
 
-    // --- ロジック ---
+    // --- 5. 初期化 ---
     document.addEventListener('submit', (e) => {
       if (e.target.id === 'createForm') {
         e.preventDefault();
-        const newPost = {
+        allData.push({
           type: 'post', id: 'p' + Date.now(),
           author: document.getElementById('author').value,
           password: document.getElementById('password').value,
@@ -273,12 +225,8 @@
           endDateTime: document.getElementById('endDateTime').value,
           deadline: document.getElementById('deadline').value,
           difficulty: document.getElementById('difficulty').value,
-          members: document.getElementById('members').value,
-          elevation: document.getElementById('elevation').value,
-          distance: document.getElementById('distance').value,
           description: document.getElementById('description').value
-        };
-        allData.push(newPost);
+        });
         saveData();
         currentView = 'list';
       }
@@ -287,7 +235,7 @@
     window.sendChat = () => {
       const input = document.getElementById('msgInput');
       if (!input.value) return;
-      allData.push({ type: 'chat', postId: currentPostId, user: 'ユーザー', text: input.value });
+      allData.push({ type: 'chat', postId: currentPostId, user: 'ゲスト', text: input.value });
       input.value = '';
       saveData();
     };
