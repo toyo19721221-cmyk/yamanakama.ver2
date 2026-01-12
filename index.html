@@ -16,21 +16,24 @@
     .card-shadow { box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); }
     .scroll-container::-webkit-scrollbar { width: 6px; }
     .scroll-container::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-    .transition-all { transition: all 0.3s ease; }
+    .filter-chip { padding: 6px 14px; border-radius: 20px; cursor: pointer; transition: all 0.2s; border: 2px solid; font-weight: 500; font-size: 0.875rem; }
   </style>
  </head>
  <body class="h-full text-slate-800">
   <div id="app" class="max-w-4xl mx-auto min-h-screen flex flex-col"></div>
 
   <script>
-    // --- 初期設定とデータ ---
-    const STORAGE_KEY = 'hiking_app_v3_data';
-    const PREFECTURES = ["すべて","北海道","青森県","岩手県","宮城県","秋田県","山形県","福島県","茨城県","栃木県","群馬県","埼玉県","千葉県","東京都","神奈川県","新潟県","富山県","石川県","福井県","山梨県","長野県","岐阜県","静岡県","愛知県","三重県","滋賀県","京都府","大阪府","兵庫県","奈良県","和歌山県","鳥取県","島根県","岡山県","広島県","山口県","徳島県","香川県","愛媛県","高知県","福岡県","佐賀県","長崎県","熊本県","大分県","宮崎県","鹿児島県","沖縄県"];
+    // --- データと設定 ---
+    const STORAGE_KEY = 'hiking_app_v4_data';
+    const PREFECTURES = ["北海道","青森県","岩手県","宮城県","秋田県","山形県","福島県","茨城県","栃木県","群馬県","埼玉県","千葉県","東京都","神奈川県","新潟県","富山県","石川県","福井県","山梨県","長野県","岐阜県","静岡県","愛知県","三重県","滋賀県","京都府","大阪府","兵庫県","奈良県","和歌山県","鳥取県","島根県","岡山県","広島県","山口県","徳島県","香川県","愛媛県","高知県","福岡県","佐賀県","長崎県","熊本県","大分県","宮崎県","鹿児島県","沖縄県"];
 
     let allData = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
     let currentView = 'list';
     let currentPostId = null;
-    let filterPrefecture = "すべて";
+
+    // フィルター状態
+    let selectedDifficulties = new Set(['初心者向け', '中級者向け', '上級者向け']);
+    let selectedPrefecture = "すべて";
 
     // サービスワーカー登録
     if ('serviceWorker' in navigator) {
@@ -50,23 +53,24 @@
       return `${dt.getMonth() + 1}月${dt.getDate()}日 ${dt.getHours()}時`;
     }
 
-    // 削除機能（パスワード制）
     window.deletePost = (e, id) => {
       e.stopPropagation();
       const post = allData.find(i => i.id === id);
       const inputPass = prompt('削除用パスワードを入力してください:');
-      
-      if (inputPass === null) return; // キャンセル時
       if (inputPass === post.password) {
         allData = allData.filter(i => i.id !== id && i.postId !== id);
         saveData();
-        alert('削除を完了しました。');
-      } else {
-        alert('パスワードが正しくありません。');
+      } else if (inputPass !== null) {
+        alert('パスワードが違います');
       }
     };
 
-    // --- レンダリング ---
+    function toggleDifficulty(diff) {
+      selectedDifficulties.has(diff) ? selectedDifficulties.delete(diff) : selectedDifficulties.add(diff);
+      renderApp();
+    }
+
+    // --- メイン表示 ---
     function renderApp() {
       const app = document.getElementById('app');
       if (currentView === 'list') app.innerHTML = renderListView();
@@ -78,46 +82,60 @@
     function renderListView() {
       let posts = allData.filter(i => i.type === 'post');
       
-      // 地域で絞り込み
-      if (filterPrefecture !== "すべて") {
-        posts = posts.filter(p => p.prefecture === filterPrefecture);
-      }
+      // フィルター適用
+      if (selectedPrefecture !== "すべて") posts = posts.filter(p => p.prefecture === selectedPrefecture);
+      posts = posts.filter(p => selectedDifficulties.has(p.difficulty));
       posts = posts.reverse();
 
       return `
-        <header class="flex justify-between items-center p-6 bg-white border-b border-blue-100 sticky top-0 z-10">
+        <header class="flex justify-between items-center p-6 bg-white border-b sticky top-0 z-10">
           <h1 class="text-2xl font-bold flex items-center gap-2">🏔️ 山仲間募集</h1>
-          <button onclick="currentView='create'; renderApp()" class="bg-[#0081c9] text-white px-4 py-2 rounded-lg font-bold text-sm shadow-md hover:bg-[#006ba6]">募集作成</button>
+          <button onclick="currentView='create'; renderApp()" class="bg-[#0081c9] text-white px-4 py-2 rounded-lg font-bold shadow-md hover:bg-[#006ba6]">新しい募集を作成</button>
         </header>
 
         <main class="px-6 py-4 flex-grow">
-          <div class="mb-6 bg-white p-4 rounded-xl card-shadow flex items-center gap-3">
-            <span class="text-sm font-bold text-slate-500">📍 地域で探す:</span>
-            <select onchange="filterPrefecture=this.value; renderApp()" class="flex-grow md:flex-none p-2 bg-blue-50 border border-blue-200 rounded-lg text-sm outline-none">
-              ${PREFECTURES.map(p => `<option value="${p}" ${filterPrefecture === p ? 'selected' : ''}>${p}</option>`).join('')}
-            </select>
+          <div class="bg-white rounded-xl p-6 mb-8 card-shadow border border-slate-100">
+            <h3 class="font-bold text-slate-800 mb-4 flex items-center gap-2">🔍 絞り込み条件</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <p class="text-xs font-bold text-slate-400 mb-2 uppercase">難易度</p>
+                <div class="flex flex-wrap gap-2">
+                  ${['初心者向け', '中級者向け', '上級者向け'].map(d => {
+                    const active = selectedDifficulties.has(d);
+                    return `<span onclick="toggleDifficulty('${d}')" class="filter-chip" style="background:${active ? '#0284c7' : 'transparent'}; color:${active ? '#fff' : '#64748b'}; border-color:${active ? '#0284c7' : '#e2e8f0'}">${d}</span>`;
+                  }).join('')}
+                </div>
+              </div>
+              <div>
+                <p class="text-xs font-bold text-slate-400 mb-2 uppercase">所在地（地域）</p>
+                <select onchange="selectedPrefecture=this.value; renderApp()" class="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg outline-none">
+                  <option value="すべて">すべての地域</option>
+                  ${PREFECTURES.map(p => `<option value="${p}" ${selectedPrefecture === p ? 'selected' : ''}>${p}</option>`).join('')}
+                </select>
+              </div>
+            </div>
           </div>
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-6 pb-10">
-            ${posts.length === 0 ? '<div class="text-center text-slate-400 col-span-2 py-20 bg-white rounded-2xl">該当する募集が見つかりませんでした</div>' : 
+            ${posts.length === 0 ? '<p class="text-center text-slate-400 col-span-2 py-20 bg-white rounded-2xl">該当する募集がありません</p>' : 
               posts.map(post => `
-                <div class="bg-white rounded-2xl p-6 card-shadow cursor-pointer relative group border border-transparent hover:border-blue-300 transition-all" onclick="openChat('${post.id}')">
+                <div class="bg-white rounded-2xl p-6 card-shadow cursor-pointer relative border border-transparent hover:border-blue-300 transition-all" onclick="openChat('${post.id}')">
                   <div class="absolute top-4 right-4 flex flex-col items-end gap-1">
                     <span class="bg-emerald-500 text-white text-[10px] px-2 py-0.5 rounded-full font-bold">🟢 募集中</span>
                     <span class="bg-sky-500 text-white text-[10px] px-2 py-0.5 rounded-full font-bold">${post.difficulty}</span>
                     <button onclick="deletePost(event, '${post.id}')" class="mt-2 text-slate-300 hover:text-red-500 text-xs flex items-center gap-1">🗑️ 削除</button>
                   </div>
-                  <h3 class="text-xl font-bold mb-4 pr-16 leading-tight">${post.title}</h3>
+                  <h3 class="text-xl font-bold mb-4 pr-16">${post.title}</h3>
                   <div class="space-y-2 text-sm text-slate-600 mb-4">
                     <p>⛰️ <strong>${post.mountain} (${post.prefecture})</strong></p>
                     <p>📅 登山: <span class="text-blue-600 font-bold">${formatDateTime(post.startDateTime)}</span></p>
                     <p>🏁 下山: <span class="text-slate-500">${formatDateTime(post.endDateTime)}</span></p>
-                    <p>👥 募集人数: ${post.members}</p>
+                    <p>👥 募集: ${post.members}</p>
                     <p>🏔️ 標高: ${post.elevation}m / 👣 距離: ${post.distance}km</p>
                   </div>
                   <div class="pt-4 border-t flex justify-between items-center text-xs text-slate-400">
-                    <span class="flex items-center gap-1">👤 ${post.author}</span>
-                    <span class="bg-blue-50 text-blue-600 px-3 py-1 rounded-full font-bold">💬 相談 ${allData.filter(i => i.postId === post.id).length} 件</span>
+                    <span>投稿者: ${post.author}</span>
+                    <span class="bg-blue-50 text-blue-600 px-3 py-1 rounded-full font-bold">💬 ${allData.filter(i => i.postId === post.id).length} 件</span>
                   </div>
                 </div>
               `).join('')}
@@ -134,75 +152,75 @@
             <form id="createForm" class="space-y-5 text-sm">
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label class="block font-bold mb-1 text-slate-600">お名前</label>
-                  <input type="text" id="author" placeholder="山田太郎" required class="w-full p-3 bg-slate-50 border rounded-lg focus:ring-2 focus:ring-blue-400 outline-none">
+                  <label class="block font-bold mb-1">あなたの名前</label>
+                  <input type="text" id="author" required class="w-full p-3 bg-slate-50 border rounded-lg outline-none">
                 </div>
                 <div>
-                  <label class="block font-bold mb-1 text-slate-600 text-red-500">削除用パスワード</label>
-                  <input type="password" id="password" placeholder="任意の数字や文字" required class="w-full p-3 bg-red-50 border border-red-100 rounded-lg focus:ring-2 focus:ring-red-400 outline-none">
+                  <label class="block font-bold mb-1 text-red-500">削除パスワード</label>
+                  <input type="password" id="password" required class="w-full p-3 bg-red-50 border border-red-100 rounded-lg outline-none">
                 </div>
               </div>
               <div>
-                <label class="block font-bold mb-1 text-slate-600">募集タイトル</label>
-                <input type="text" id="title" placeholder="初心者歓迎！富士山に行きませんか？" required class="w-full p-3 bg-slate-50 border rounded-lg focus:ring-2 focus:ring-blue-400 outline-none">
+                <label class="block font-bold mb-1">募集タイトル</label>
+                <input type="text" id="title" required class="w-full p-3 bg-slate-50 border rounded-lg outline-none">
               </div>
               <div class="grid grid-cols-2 gap-4">
                 <div>
-                  <label class="block font-bold mb-1 text-slate-600">山の名前</label>
-                  <input type="text" id="mountain" placeholder="富士山" required class="w-full p-3 bg-slate-50 border rounded-lg focus:ring-2 focus:ring-blue-400 outline-none">
+                  <label class="block font-bold mb-1">山の名前</label>
+                  <input type="text" id="mountain" required class="w-full p-3 bg-slate-50 border rounded-lg outline-none">
                 </div>
                 <div>
-                  <label class="block font-bold mb-1 text-slate-600">所在地</label>
+                  <label class="block font-bold mb-1">所在地</label>
                   <select id="prefecture" class="w-full p-3 bg-slate-50 border rounded-lg outline-none">
-                    ${PREFECTURES.filter(p=>p!=="すべて").map(p => `<option value="${p}">${p}</option>`).join('')}
+                    ${PREFECTURES.map(p => `<option value="${p}">${p}</option>`).join('')}
                   </select>
                 </div>
               </div>
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label class="block font-bold mb-1 text-slate-600 text-blue-600">登山予定日時</label>
+                  <label class="block font-bold mb-1 text-blue-600">登山予定日時</label>
                   <input type="datetime-local" id="startDateTime" required class="w-full p-3 bg-blue-50 border border-blue-100 rounded-lg outline-none">
                 </div>
                 <div>
-                  <label class="block font-bold mb-1 text-slate-600">下山予定日時</label>
+                  <label class="block font-bold mb-1">下山予定日時</label>
                   <input type="datetime-local" id="endDateTime" required class="w-full p-3 bg-slate-50 border rounded-lg outline-none">
                 </div>
               </div>
               <div>
-                <label class="block font-bold mb-1 text-slate-600">募集期限</label>
+                <label class="block font-bold mb-1">募集期限</label>
                 <input type="date" id="deadline" required class="w-full p-3 bg-slate-50 border rounded-lg outline-none">
               </div>
               <div class="grid grid-cols-2 gap-4">
                 <div>
-                  <label class="block font-bold mb-1 text-slate-600">難易度</label>
-                  <select id="difficulty" class="w-full p-3 bg-slate-50 border rounded-lg outline-none">
+                  <label class="block font-bold mb-1">難易度</label>
+                  <select id="difficulty" class="w-full p-3 bg-slate-50 border rounded-lg">
                     <option>初心者向け</option><option>中級者向け</option><option>上級者向け</option>
                   </select>
                 </div>
                 <div>
-                  <label class="block font-bold mb-1 text-slate-600">募集人数</label>
-                  <select id="members" class="w-full p-3 bg-slate-50 border rounded-lg outline-none">
+                  <label class="block font-bold mb-1">募集人数</label>
+                  <select id="members" class="w-full p-3 bg-slate-50 border rounded-lg">
                     <option>1人</option><option>2人</option><option>3人以上</option>
                   </select>
                 </div>
               </div>
               <div class="grid grid-cols-2 gap-4">
                 <div>
-                  <label class="block font-bold mb-1 text-slate-600">上り標高 (m)</label>
-                  <input type="number" id="elevation" placeholder="1000" class="w-full p-3 bg-slate-50 border rounded-lg outline-none">
+                  <label class="block font-bold mb-1">上り標高 (m)</label>
+                  <input type="number" id="elevation" class="w-full p-3 bg-slate-50 border rounded-lg">
                 </div>
                 <div>
-                  <label class="block font-bold mb-1 text-slate-600">合計距離 (km)</label>
-                  <input type="number" step="0.1" id="distance" placeholder="10.5" class="w-full p-3 bg-slate-50 border rounded-lg outline-none">
+                  <label class="block font-bold mb-1">距離 (km)</label>
+                  <input type="number" step="0.1" id="distance" class="w-full p-3 bg-slate-50 border rounded-lg">
                 </div>
               </div>
               <div>
-                <label class="block font-bold mb-1 text-slate-600">詳細説明</label>
-                <textarea id="description" rows="4" placeholder="詳細なルート、集合場所、持ち物など" class="w-full p-3 bg-slate-50 border rounded-lg outline-none focus:ring-2 focus:ring-blue-400"></textarea>
+                <label class="block font-bold mb-1">詳細説明</label>
+                <textarea id="description" rows="4" class="w-full p-3 bg-slate-50 border rounded-lg outline-none"></textarea>
               </div>
               <div class="space-y-3 pt-4">
-                <button type="submit" class="w-full bg-[#0081c9] text-white py-4 rounded-xl font-bold shadow-lg hover:bg-[#006ba6] transition-all">募集を投稿する</button>
-                <button type="button" onclick="currentView='list'; renderApp()" class="w-full bg-slate-100 text-slate-600 py-3 rounded-xl font-bold border border-slate-200 hover:bg-slate-200 transition-all">キャンセルして戻る</button>
+                <button type="submit" class="w-full bg-[#0081c9] text-white py-4 rounded-xl font-bold shadow-lg">募集を投稿する</button>
+                <button type="button" onclick="currentView='list'; renderApp()" class="w-full bg-slate-100 text-slate-600 py-3 rounded-xl font-bold border">キャンセル</button>
               </div>
             </form>
           </div>
@@ -223,11 +241,8 @@
         </header>
         <div class="flex-grow p-6 overflow-y-auto space-y-4 scroll-container">
           <div class="bg-white p-5 rounded-2xl text-sm border border-blue-100 card-shadow">
-            <div class="flex justify-between items-start mb-4">
-              <span class="text-blue-600 font-bold border-b-2 border-blue-200">募集詳細</span>
-              <span class="text-[10px] text-slate-400">ID: ${post.id}</span>
-            </div>
-            <p class="whitespace-pre-wrap leading-relaxed text-slate-700">${post.description || "詳細説明はありません。"}</p>
+            <p class="font-bold text-blue-600 mb-2">募集詳細</p>
+            <p class="whitespace-pre-wrap leading-relaxed">${post.description || "詳細なし"}</p>
           </div>
           ${messages.map(m => `
             <div class="bg-white p-3 rounded-xl shadow-sm border border-slate-100 max-w-[90%]">
@@ -237,8 +252,8 @@
           `).join('')}
         </div>
         <div class="p-4 bg-white border-t flex gap-2 shrink-0">
-          <input type="text" id="msgInput" class="flex-grow p-3 bg-slate-100 rounded-xl outline-none border border-transparent focus:border-blue-400 transition-all" placeholder="メッセージを入力...">
-          <button onclick="sendChat()" class="bg-[#0081c9] text-white px-6 rounded-xl font-bold hover:bg-[#006ba6] transition-all">送信</button>
+          <input type="text" id="msgInput" class="flex-grow p-3 bg-slate-100 rounded-xl outline-none" placeholder="メッセージを入力...">
+          <button onclick="sendChat()" class="bg-[#0081c9] text-white px-6 rounded-xl font-bold">送信</button>
         </div>
       `;
     }
@@ -272,10 +287,7 @@
     window.sendChat = () => {
       const input = document.getElementById('msgInput');
       if (!input.value) return;
-      allData.push({
-        type: 'chat', postId: currentPostId,
-        user: 'ユーザー', text: input.value
-      });
+      allData.push({ type: 'chat', postId: currentPostId, user: 'ユーザー', text: input.value });
       input.value = '';
       saveData();
     };
