@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="ja" class="h-full">
+ <head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>山仲間募集 - Hiking Connect</title>
+  
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0284c7">
+  <link rel="apple-touch-icon" href="icon.svg">
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&amp;display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Noto Sans JP', sans-serif; background-color: #f0f9ff; }
+    .card-shadow { box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); }
+    .scroll-container::-webkit-scrollbar { width: 6px; }
+    .scroll-container::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+    .transition-all { transition: all 0.3s ease; }
+  </style>
+ </head>
+ <body class="h-full text-slate-800">
+  <div id="app" class="max-w-4xl mx-auto min-h-screen flex flex-col"></div>
+
+  <script>
+    // --- 初期設定とデータ ---
+    const STORAGE_KEY = 'hiking_app_v3_data';
+    const PREFECTURES = ["すべて","北海道","青森県","岩手県","宮城県","秋田県","山形県","福島県","茨城県","栃木県","群馬県","埼玉県","千葉県","東京都","神奈川県","新潟県","富山県","石川県","福井県","山梨県","長野県","岐阜県","静岡県","愛知県","三重県","滋賀県","京都府","大阪府","兵庫県","奈良県","和歌山県","鳥取県","島根県","岡山県","広島県","山口県","徳島県","香川県","愛媛県","高知県","福岡県","佐賀県","長崎県","熊本県","大分県","宮崎県","鹿児島県","沖縄県"];
+
+    let allData = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+    let currentView = 'list';
+    let currentPostId = null;
+    let filterPrefecture = "すべて";
+
+    // サービスワーカー登録
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch(console.error);
+      });
+    }
+
+    function saveData() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(allData));
+      renderApp();
+    }
+
+    function formatDateTime(dtStr) {
+      if(!dtStr) return "-";
+      const dt = new Date(dtStr);
+      return `${dt.getMonth() + 1}月${dt.getDate()}日 ${dt.getHours()}時`;
+    }
+
+    // 削除機能（パスワード制）
+    window.deletePost = (e, id) => {
+      e.stopPropagation();
+      const post = allData.find(i => i.id === id);
+      const inputPass = prompt('削除用パスワードを入力してください:');
+      
+      if (inputPass === null) return; // キャンセル時
+      if (inputPass === post.password) {
+        allData = allData.filter(i => i.id !== id && i.postId !== id);
+        saveData();
+        alert('削除を完了しました。');
+      } else {
+        alert('パスワードが正しくありません。');
+      }
+    };
+
+    // --- レンダリング ---
+    function renderApp() {
+      const app = document.getElementById('app');
+      if (currentView === 'list') app.innerHTML = renderListView();
+      else if (currentView === 'create') app.innerHTML = renderCreateView();
+      else if (currentView === 'chat') app.innerHTML = renderChatView();
+      window.scrollTo(0, 0);
+    }
+
+    function renderListView() {
+      let posts = allData.filter(i => i.type === 'post');
+      
+      // 地域で絞り込み
+      if (filterPrefecture !== "すべて") {
+        posts = posts.filter(p => p.prefecture === filterPrefecture);
+      }
+      posts = posts.reverse();
+
+      return `
+        <header class="flex justify-between items-center p-6 bg-white border-b border-blue-100 sticky top-0 z-10">
+          <h1 class="text-2xl font-bold flex items-center gap-2">🏔️ 山仲間募集</h1>
+          <button onclick="currentView='create'; renderApp()" class="bg-[#0081c9] text-white px-4 py-2 rounded-lg font-bold text-sm shadow-md hover:bg-[#006ba6]">募集作成</button>
+        </header>
+
+        <main class="px-6 py-4 flex-grow">
+          <div class="mb-6 bg-white p-4 rounded-xl card-shadow flex items-center gap-3">
+            <span class="text-sm font-bold text-slate-500">📍 地域で探す:</span>
+            <select onchange="filterPrefecture=this.value; renderApp()" class="flex-grow md:flex-none p-2 bg-blue-50 border border-blue-200 rounded-lg text-sm outline-none">
+              ${PREFECTURES.map(p => `<option value="${p}" ${filterPrefecture === p ? 'selected' : ''}>${p}</option>`).join('')}
+            </select>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6 pb-10">
+            ${posts.length === 0 ? '<div class="text-center text-slate-400 col-span-2 py-20 bg-white rounded-2xl">該当する募集が見つかりませんでした</div>' : 
+              posts.map(post => `
+                <div class="bg-white rounded-2xl p-6 card-shadow cursor-pointer relative group border border-transparent hover:border-blue-300 transition-all" onclick="openChat('${post.id}')">
+                  <div class="absolute top-4 right-4 flex flex-col items-end gap-1">
+                    <span class="bg-emerald-500 text-white text-[10px] px-2 py-0.5 rounded-full font-bold">🟢 募集中</span>
+                    <span class="bg-sky-500 text-white text-[10px] px-2 py-0.5 rounded-full font-bold">${post.difficulty}</span>
+                    <button onclick="deletePost(event, '${post.id}')" class="mt-2 text-slate-300 hover:text-red-500 text-xs flex items-center gap-1">🗑️ 削除</button>
+                  </div>
+                  <h3 class="text-xl font-bold mb-4 pr-16 leading-tight">${post.title}</h3>
+                  <div class="space-y-2 text-sm text-slate-600 mb-4">
+                    <p>⛰️ <strong>${post.mountain} (${post.prefecture})</strong></p>
+                    <p>📅 登山: <span class="text-blue-600 font-bold">${formatDateTime(post.startDateTime)}</span></p>
+                    <p>🏁 下山: <span class="text-slate-500">${formatDateTime(post.endDateTime)}</span></p>
+                    <p>👥 募集人数: ${post.members}</p>
+                    <p>🏔️ 標高: ${post.elevation}m / 👣 距離: ${post.distance}km</p>
+                  </div>
+                  <div class="pt-4 border-t flex justify-between items-center text-xs text-slate-400">
+                    <span class="flex items-center gap-1">👤 ${post.author}</span>
+                    <span class="bg-blue-50 text-blue-600 px-3 py-1 rounded-full font-bold">💬 相談 ${allData.filter(i => i.postId === post.id).length} 件</span>
+                  </div>
+                </div>
+              `).join('')}
+          </div>
+        </main>
+      `;
+    }
+
+    function renderCreateView() {
+      return `
+        <div class="p-6">
+          <h2 class="text-2xl font-bold mb-6 text-center">新しい募集を作成</h2>
+          <div class="bg-white rounded-2xl p-8 card-shadow border border-blue-50">
+            <form id="createForm" class="space-y-5 text-sm">
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label class="block font-bold mb-1 text-slate-600">お名前</label>
+                  <input type="text" id="author" placeholder="山田太郎" required class="w-full p-3 bg-slate-50 border rounded-lg focus:ring-2 focus:ring-blue-400 outline-none">
+                </div>
+                <div>
+                  <label class="block font-bold mb-1 text-slate-600 text-red-500">削除用パスワード</label>
+                  <input type="password" id="password" placeholder="任意の数字や文字" required class="w-full p-3 bg-red-50 border border-red-100 rounded-lg focus:ring-2 focus:ring-red-400 outline-none">
+                </div>
+              </div>
+              <div>
+                <label class="block font-bold mb-1 text-slate-600">募集タイトル</label>
+                <input type="text" id="title" placeholder="初心者歓迎！富士山に行きませんか？" required class="w-full p-3 bg-slate-50 border rounded-lg focus:ring-2 focus:ring-blue-400 outline-none">
+              </div>
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <label class="block font-bold mb-1 text-slate-600">山の名前</label>
+                  <input type="text" id="mountain" placeholder="富士山" required class="w-full p-3 bg-slate-50 border rounded-lg focus:ring-2 focus:ring-blue-400 outline-none">
+                </div>
+                <div>
+                  <label class="block font-bold mb-1 text-slate-600">所在地</label>
+                  <select id="prefecture" class="w-full p-3 bg-slate-50 border rounded-lg outline-none">
+                    ${PREFECTURES.filter(p=>p!=="すべて").map(p => `<option value="${p}">${p}</option>`).join('')}
+                  </select>
+                </div>
+              </div>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label class="block font-bold mb-1 text-slate-600 text-blue-600">登山予定日時</label>
+                  <input type="datetime-local" id="startDateTime" required class="w-full p-3 bg-blue-50 border border-blue-100 rounded-lg outline-none">
+                </div>
+                <div>
+                  <label class="block font-bold mb-1 text-slate-600">下山予定日時</label>
+                  <input type="datetime-local" id="endDateTime" required class="w-full p-3 bg-slate-50 border rounded-lg outline-none">
+                </div>
+              </div>
+              <div>
+                <label class="block font-bold mb-1 text-slate-600">募集期限</label>
+                <input type="date" id="deadline" required class="w-full p-3 bg-slate-50 border rounded-lg outline-none">
+              </div>
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <label class="block font-bold mb-1 text-slate-600">難易度</label>
+                  <select id="difficulty" class="w-full p-3 bg-slate-50 border rounded-lg outline-none">
+                    <option>初心者向け</option><option>中級者向け</option><option>上級者向け</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block font-bold mb-1 text-slate-600">募集人数</label>
+                  <select id="members" class="w-full p-3 bg-slate-50 border rounded-lg outline-none">
+                    <option>1人</option><option>2人</option><option>3人以上</option>
+                  </select>
+                </div>
+              </div>
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <label class="block font-bold mb-1 text-slate-600">上り標高 (m)</label>
+                  <input type="number" id="elevation" placeholder="1000" class="w-full p-3 bg-slate-50 border rounded-lg outline-none">
+                </div>
+                <div>
+                  <label class="block font-bold mb-1 text-slate-600">合計距離 (km)</label>
+                  <input type="number" step="0.1" id="distance" placeholder="10.5" class="w-full p-3 bg-slate-50 border rounded-lg outline-none">
+                </div>
+              </div>
+              <div>
+                <label class="block font-bold mb-1 text-slate-600">詳細説明</label>
+                <textarea id="description" rows="4" placeholder="詳細なルート、集合場所、持ち物など" class="w-full p-3 bg-slate-50 border rounded-lg outline-none focus:ring-2 focus:ring-blue-400"></textarea>
+              </div>
+              <div class="space-y-3 pt-4">
+                <button type="submit" class="w-full bg-[#0081c9] text-white py-4 rounded-xl font-bold shadow-lg hover:bg-[#006ba6] transition-all">募集を投稿する</button>
+                <button type="button" onclick="currentView='list'; renderApp()" class="w-full bg-slate-100 text-slate-600 py-3 rounded-xl font-bold border border-slate-200 hover:bg-slate-200 transition-all">キャンセルして戻る</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderChatView() {
+      const post = allData.find(i => i.id === currentPostId);
+      const messages = allData.filter(i => i.postId === currentPostId && i.type === 'chat');
+      return `
+        <header class="p-6 flex items-center gap-4 bg-white card-shadow shrink-0 sticky top-0 z-10">
+          <button onclick="currentView='list'; renderApp()" class="text-2xl p-2 hover:bg-slate-100 rounded-full transition-all">←</button>
+          <div class="overflow-hidden">
+            <h2 class="font-bold truncate text-lg">${post.title}</h2>
+            <p class="text-xs text-slate-500">🗻 ${post.mountain} / ${formatDateTime(post.startDateTime)}</p>
+          </div>
+        </header>
+        <div class="flex-grow p-6 overflow-y-auto space-y-4 scroll-container">
+          <div class="bg-white p-5 rounded-2xl text-sm border border-blue-100 card-shadow">
+            <div class="flex justify-between items-start mb-4">
+              <span class="text-blue-600 font-bold border-b-2 border-blue-200">募集詳細</span>
+              <span class="text-[10px] text-slate-400">ID: ${post.id}</span>
+            </div>
+            <p class="whitespace-pre-wrap leading-relaxed text-slate-700">${post.description || "詳細説明はありません。"}</p>
+          </div>
+          ${messages.map(m => `
+            <div class="bg-white p-3 rounded-xl shadow-sm border border-slate-100 max-w-[90%]">
+              <p class="text-[10px] text-slate-400 mb-1 font-bold">👤 ${m.user}</p>
+              <p class="text-sm">${m.text}</p>
+            </div>
+          `).join('')}
+        </div>
+        <div class="p-4 bg-white border-t flex gap-2 shrink-0">
+          <input type="text" id="msgInput" class="flex-grow p-3 bg-slate-100 rounded-xl outline-none border border-transparent focus:border-blue-400 transition-all" placeholder="メッセージを入力...">
+          <button onclick="sendChat()" class="bg-[#0081c9] text-white px-6 rounded-xl font-bold hover:bg-[#006ba6] transition-all">送信</button>
+        </div>
+      `;
+    }
+
+    // --- ロジック ---
+    document.addEventListener('submit', (e) => {
+      if (e.target.id === 'createForm') {
+        e.preventDefault();
+        const newPost = {
+          type: 'post', id: 'p' + Date.now(),
+          author: document.getElementById('author').value,
+          password: document.getElementById('password').value,
+          title: document.getElementById('title').value,
+          mountain: document.getElementById('mountain').value,
+          prefecture: document.getElementById('prefecture').value,
+          startDateTime: document.getElementById('startDateTime').value,
+          endDateTime: document.getElementById('endDateTime').value,
+          deadline: document.getElementById('deadline').value,
+          difficulty: document.getElementById('difficulty').value,
+          members: document.getElementById('members').value,
+          elevation: document.getElementById('elevation').value,
+          distance: document.getElementById('distance').value,
+          description: document.getElementById('description').value
+        };
+        allData.push(newPost);
+        saveData();
+        currentView = 'list';
+      }
+    });
+
+    window.sendChat = () => {
+      const input = document.getElementById('msgInput');
+      if (!input.value) return;
+      allData.push({
+        type: 'chat', postId: currentPostId,
+        user: 'ユーザー', text: input.value
+      });
+      input.value = '';
+      saveData();
+    };
+
+    window.openChat = (id) => { currentPostId = id; currentView = 'chat'; renderApp(); };
+
+    renderApp();
+  </script>
+ </body>
+</html>

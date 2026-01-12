@@ -1,0 +1,17 @@
+{
+  "short_name": "山仲間",
+  "name": "山仲間募集 - 登山コミュニティ",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "start_url": "index.html",
+  "background_color": "#f0f9ff",
+  "display": "standalone",
+  "scope": "/yamanakama/",
+  "theme_color": "#0284c7"
+}
